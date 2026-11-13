@@ -10,6 +10,8 @@ Files are recognised by content, not extension: every file in the folder is offe
 2. Pixels that deviate by more than `--threshold` of the sensor range are outliers for that file.
 3. A defect sits at the same coordinate in every shot, so only coordinates flagged in at least `--min-ratio` of the files are reported. This filters out stars, highlights and other real detail.
 
+Details (Bayer planes, G1/G2, why the median is local, the speed trick): [docs/how-it-works.md](docs/how-it-works.md).
+
 Best results: many shots, ideally including some dark frames (lens cap on, a few seconds of exposure).
 
 ## Install
