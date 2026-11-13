@@ -1,0 +1,15 @@
+[project]
+name = "stuck-pixels"
+version = "0.1.0"
+description = "Find stuck/hot/dead pixels across a folder of Canon CR3 raw files"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.4",
+    "rawpy>=0.28.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
