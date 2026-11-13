@@ -15,11 +15,11 @@ Best results: many shots, ideally including some dark frames (lens cap on, a few
 ## Install
 
 ```sh
-uv tool install git+https://github.com/<you>/stuck-pixels
+uv tool install git+https://github.com/pelayocampa/stuck-pixels
 stuck-pixels /path/to/raws/folder
 ```
 
-Upgrade with `uv tool upgrade stuck-pixels`. Works without uv too: `pipx install git+https://github.com/<you>/stuck-pixels`.
+Upgrade with `uv tool upgrade stuck-pixels`. Works without uv too: `pipx install git+https://github.com/pelayocampa/stuck-pixels`.
 
 ## Usage (from a clone)
 
