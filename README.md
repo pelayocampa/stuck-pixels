@@ -12,7 +12,16 @@ Files are recognised by content, not extension: every file in the folder is offe
 
 Best results: many shots, ideally including some dark frames (lens cap on, a few seconds of exposure).
 
-## Usage
+## Install
+
+```sh
+uv tool install git+https://github.com/<you>/stuck-pixels
+stuck-pixels /path/to/raws/folder
+```
+
+Upgrade with `uv tool upgrade stuck-pixels`. Works without uv too: `pipx install git+https://github.com/<you>/stuck-pixels`.
+
+## Usage (from a clone)
 
 ```sh
 uv sync
