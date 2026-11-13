@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import rawpy
+from tqdm import tqdm
 
 
 def find_outliers(raw: np.ndarray, black: float, white: float, threshold: float) -> set[tuple[int, int]]:
@@ -64,19 +65,20 @@ def main() -> int:
     counts: Counter[tuple[int, int]] = Counter()
     shapes = set()
     scanned = not_raw = 0
-    for i, f in enumerate(files, 1):
+    bar = tqdm(files, unit="file")
+    for f in bar:
         try:
             hits, shape = scan_file(f, args.threshold)
         except rawpy.LibRawFileUnsupportedError:
             not_raw += 1  # JPEGs, sidecars, etc.: skipped quietly
             continue
         except (rawpy.LibRawError, OSError, ValueError) as e:
-            print(f"[{i}/{len(files)}] {f.name}: skipped ({e})", file=sys.stderr)
+            bar.write(f"{f.name}: skipped ({e})", file=sys.stderr)
             continue
         scanned += 1
         shapes.add(shape)
         counts.update(hits)
-        print(f"[{i}/{len(files)}] {f.name}: {len(hits)} outliers", file=sys.stderr)
+        bar.set_postfix_str(f"{f.name}: {len(hits)} outliers")
 
     if not_raw:
         print(f"Ignored {not_raw} non-raw files", file=sys.stderr)
