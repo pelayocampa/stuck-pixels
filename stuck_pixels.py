@@ -1,4 +1,4 @@
-"""Find stuck/hot/dead pixels across a folder of Canon CR3 raw files.
+"""Find stuck/hot/dead pixels across a folder of camera raw files.
 
 A defective pixel sits at the same sensor coordinate in every shot, so we flag
 outliers per file on the raw Bayer data and keep only coordinates that repeat
@@ -37,6 +37,9 @@ def find_outliers(raw: np.ndarray, black: float, white: float, threshold: float)
 
 def scan_file(path: Path, threshold: float) -> tuple[set[tuple[int, int]], tuple[int, int]]:
     with rawpy.imread(str(path)) as raw:
+        # The neighbour comparison assumes a 2x2 Bayer mosaic (rules out X-Trans, Foveon, linear DNG).
+        if raw.raw_type != rawpy.RawType.Flat or raw.raw_pattern is None or raw.raw_pattern.shape != (2, 2):
+            raise ValueError("not a 2x2 Bayer sensor, unsupported")
         data = raw.raw_image_visible
         black = float(np.mean(raw.black_level_per_channel))
         return find_outliers(data, black, float(raw.white_level), threshold), data.shape
@@ -55,18 +58,19 @@ def main() -> int:
     if not args.folder.is_dir():
         ap.error(f"not a folder: {args.folder}")
     pattern = "**/*" if args.recursive else "*"
-    files = sorted(p for p in args.folder.glob(pattern) if p.suffix.lower() == ".cr3")
-    if not files:
-        print(f"No CR3 files in {args.folder}", file=sys.stderr)
-        return 1
+    # No extension list: LibRaw recognises raw formats by content, so every file is offered to it.
+    files = sorted(p for p in args.folder.glob(pattern) if p.is_file() and not p.name.startswith("."))
 
     counts: Counter[tuple[int, int]] = Counter()
     shapes = set()
-    scanned = 0
+    scanned = not_raw = 0
     for i, f in enumerate(files, 1):
         try:
             hits, shape = scan_file(f, args.threshold)
-        except (rawpy.LibRawError, OSError) as e:
+        except rawpy.LibRawFileUnsupportedError:
+            not_raw += 1  # JPEGs, sidecars, etc.: skipped quietly
+            continue
+        except (rawpy.LibRawError, OSError, ValueError) as e:
             print(f"[{i}/{len(files)}] {f.name}: skipped ({e})", file=sys.stderr)
             continue
         scanned += 1
@@ -74,7 +78,10 @@ def main() -> int:
         counts.update(hits)
         print(f"[{i}/{len(files)}] {f.name}: {len(hits)} outliers", file=sys.stderr)
 
+    if not_raw:
+        print(f"Ignored {not_raw} non-raw files", file=sys.stderr)
     if not scanned:
+        print(f"No usable raw files in {args.folder}", file=sys.stderr)
         return 1
     if len(shapes) > 1:
         # shortcut: coordinates are compared across all files, fine for one camera; split by shape if mixing bodies.
