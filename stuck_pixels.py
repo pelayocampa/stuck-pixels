@@ -17,8 +17,8 @@ from tqdm import tqdm
 
 def find_outliers(raw: np.ndarray, black: float, white: float, threshold: float) -> set[tuple[int, int]]:
     """Return (row, col) of pixels that differ from their same-colour neighbours by > threshold of the range."""
-    data = raw.astype(np.float32)
-    limit = threshold * (white - black)
+    data = raw.astype(np.int32)
+    limit = np.float32(threshold * (white - black))
     hits: set[tuple[int, int]] = set()
     # Each 2x2 Bayer offset is a single-colour plane; compare pixels only to their own colour.
     for dy in (0, 1):
@@ -26,12 +26,20 @@ def find_outliers(raw: np.ndarray, black: float, white: float, threshold: float)
             plane = data[dy::2, dx::2]
             padded = np.pad(plane, 1, mode="edge")
             h, w = plane.shape
-            neighbours = np.stack([
+            neighbours = [
                 padded[1 + oy:1 + oy + h, 1 + ox:1 + ox + w]
                 for oy in (-1, 0, 1) for ox in (-1, 0, 1) if (oy, ox) != (0, 0)
-            ])
-            diff = np.abs(plane - np.median(neighbours, axis=0))
-            for r, c in zip(*np.nonzero(diff > limit)):
+            ]
+            # The median sits between the min and max neighbour, so a pixel far from the median is
+            # also far from one of them: this cheap test keeps every real hit, then the median confirms.
+            lo, hi = neighbours[0].copy(), neighbours[0].copy()
+            for n in neighbours[1:]:
+                np.minimum(lo, n, out=lo)
+                np.maximum(hi, n, out=hi)
+            rows, cols = np.nonzero((plane - lo > limit) | (hi - plane > limit))
+            median = np.median(np.stack([n[rows, cols] for n in neighbours]).astype(np.float32), axis=0)
+            far = np.abs(plane[rows, cols].astype(np.float32) - median) > limit
+            for r, c in zip(rows[far], cols[far]):
                 hits.add((int(r) * 2 + dy, int(c) * 2 + dx))
     return hits
 
