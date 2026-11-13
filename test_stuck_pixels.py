@@ -41,3 +41,20 @@ def test_fast_path_matches_full_median():
         idx = rng.integers(0, raw.size, 3000)
         raw.flat[idx] = rng.choice([0, 16383, 9000], idx.size)
         assert find_outliers(raw, 512, 16383, seed_threshold) == reference_outliers(raw, 512, 16383, seed_threshold)
+
+
+def test_cli_votes_across_files_and_keeps_stdout_pure_csv(tmp_path, monkeypatch, capsys):
+    import sys
+    import stuck_pixels
+
+    for i in range(4):
+        (tmp_path / f"img{i}.raw").write_bytes(b"x")
+    # (5, 7) is flagged in all 4 files, (1, 1) in only one: a chance repeat that the vote must drop.
+    hits = iter([{(5, 7), (1, 1)}, {(5, 7)}, {(5, 7)}, {(5, 7)}])
+    monkeypatch.setattr(stuck_pixels, "scan_file", lambda path, threshold: (next(hits), (10, 10)))
+    monkeypatch.setattr(sys, "argv", ["stuck-pixels", str(tmp_path)])
+
+    assert stuck_pixels.main() == 0
+    out, err = capsys.readouterr()
+    assert out == "row,col,files,files_pct\n5,7,4,100.0\n"
+    assert "only 4 raw files" in err

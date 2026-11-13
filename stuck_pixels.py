@@ -14,6 +14,9 @@ import numpy as np
 import rawpy
 from tqdm import tqdm
 
+# Heuristic: below this, chance repeats of real detail can pass the --min-ratio vote.
+MIN_RELIABLE_FILES = 10
+
 
 def find_outliers(raw: np.ndarray, black: float, white: float, threshold: float) -> set[tuple[int, int]]:
     """Return (row, col) of pixels that differ from their same-colour neighbours by > threshold of the range."""
@@ -97,12 +100,16 @@ def main() -> int:
         # shortcut: coordinates are compared across all files, fine for one camera; split by shape if mixing bodies.
         print(f"Warning: mixed sensor sizes {shapes}, results may be unreliable", file=sys.stderr)
 
+    if scanned < MIN_RELIABLE_FILES:
+        print(f"Warning: only {scanned} raw files; with fewer than {MIN_RELIABLE_FILES}, image detail "
+              "(stars, highlights) can repeat by chance and be reported", file=sys.stderr)
+
     min_files = max(1, round(args.min_ratio * scanned))
     stuck = sorted(((pos, n) for pos, n in counts.items() if n >= min_files), key=lambda x: -x[1])
-    print(f"\n{len(stuck)} suspected stuck pixels (flagged in >= {min_files}/{scanned} files):")
-    print("row,col,files")
+    print(f"{len(stuck)} suspected stuck pixels (flagged in >= {min_files}/{scanned} files)", file=sys.stderr)
+    print("row,col,files,files_pct")
     for (r, c), n in stuck:
-        print(f"{r},{c},{n}")
+        print(f"{r},{c},{n},{100 * n / scanned:.1f}")
     return 0
 
 

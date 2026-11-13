@@ -12,7 +12,7 @@ Files are recognised by content, not extension: every file in the folder is offe
 
 Details (Bayer planes, G1/G2, why the median is local, the speed trick): [docs/how-it-works.md](docs/how-it-works.md).
 
-Best results: many shots, ideally including some dark frames (lens cap on, a few seconds of exposure).
+Best results: many shots (you get a warning below 10), ideally including some dark frames (lens cap on, a few seconds of exposure).
 
 ## Install
 
@@ -31,7 +31,7 @@ uv run stuck_pixels.py /path/to/raws/folder
 uv run stuck_pixels.py /path/to/raws/folder --threshold 0.15 --min-ratio 0.8 --recursive
 ```
 
-Output is CSV (`row,col,files`) on stdout in raw sensor coordinates; progress goes to stderr, so `> stuck.csv` gives a clean file.
+Output is CSV on stdout: `row,col` in raw sensor coordinates, `files` (how many files flagged that pixel) and `files_pct`. Progress, warnings and the summary go to stderr, so `> stuck.csv` gives a clean file.
 
 ## Tests
 
