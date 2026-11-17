@@ -29,9 +29,17 @@ Upgrade with `uv tool upgrade stuck-pixels`. Works without uv too: `pipx install
 uv sync
 uv run stuck_pixels.py /path/to/raws/folder
 uv run stuck_pixels.py /path/to/raws/folder --threshold 0.15 --min-ratio 0.8 --recursive
+uv run stuck_pixels.py /path/to/raws/folder --mark marks/ --mark-format jpg
 ```
 
-Output is CSV on stdout: `row,col` in raw sensor coordinates, `files` (how many files flagged that pixel) and `files_pct`. Progress, warnings and the summary go to stderr, so `> stuck.csv` gives a clean file.
+Output is CSV on stdout: `row,col` in raw sensor coordinates, `files` (how many files flagged that pixel), `files_pct` and `file_names` (the files showing it, `;`-separated, relative to the folder). Progress, warnings and the summary go to stderr, so `> stuck.csv` gives a clean file.
+
+With `--mark DIR`, every file that shows a stuck pixel gets its own folder `DIR/<subfolders>/<file name with extension>/`, holding:
+
+- `<name>_marked.png`: the demosaiced image at full sensor size (same pixel grid as the CSV coordinates, no rotation) with each defect circled.
+- `<name>_r<row>_c<col>.png`: a 33x33 pixel crop around each defect, enlarged 12x without smoothing, with the defect boxed.
+
+PNG is lossless but large (about 50 MB per 24 MP image); `--mark-format jpg` is much smaller.
 
 ## Tests
 
