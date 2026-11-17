@@ -56,5 +56,23 @@ def test_cli_votes_across_files_and_keeps_stdout_pure_csv(tmp_path, monkeypatch,
 
     assert stuck_pixels.main() == 0
     out, err = capsys.readouterr()
-    assert out == "row,col,files,files_pct\n5,7,4,100.0\n"
+    assert out == "row,col,files,files_pct,file_names\n5,7,4,100.0,img0.raw;img1.raw;img2.raw;img3.raw\n"
     assert "only 4 raw files" in err
+
+
+def test_mark_writes_full_size_image_and_zoom_crops(tmp_path):
+    from PIL import Image
+    from stuck_pixels import ZOOM_RADIUS, ZOOM_SCALE, save_marks
+
+    rgb = np.zeros((100, 150, 3), np.uint8)
+    rgb[50, 60] = 255
+    save_marks(rgb, {(50, 60), (2, 3)}, tmp_path / "img", "png")
+
+    assert Image.open(tmp_path / "img_marked.png").size == (150, 100)
+    side = (2 * ZOOM_RADIUS + 1) * ZOOM_SCALE
+    zoom = np.asarray(Image.open(tmp_path / "img_r50_c60.png"))
+    assert zoom.shape[:2] == (side, side)
+    centre = ZOOM_RADIUS * ZOOM_SCALE + ZOOM_SCALE // 2
+    assert (zoom[centre, centre] == 255).all()  # the defect sits in the middle of the crop
+    # A defect near the corner gets a clipped crop instead of an error.
+    assert Image.open(tmp_path / "img_r2_c3.png").size == ((3 + ZOOM_RADIUS + 1) * ZOOM_SCALE, (2 + ZOOM_RADIUS + 1) * ZOOM_SCALE)

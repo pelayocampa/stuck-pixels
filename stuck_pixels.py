@@ -6,16 +6,20 @@ across many files. Real image detail (stars, specular highlights) rarely repeats
 """
 
 import argparse
+import csv
 import sys
 from collections import Counter
 from pathlib import Path
 
 import numpy as np
 import rawpy
+from PIL import Image, ImageDraw
 from tqdm import tqdm
 
 # Heuristic: below this, chance repeats of real detail can pass the --min-ratio vote.
 MIN_RELIABLE_FILES = 10
+ZOOM_RADIUS = 16  # crop is (2*16+1)^2 sensor pixels around the defect
+ZOOM_SCALE = 12
 
 
 def find_outliers(raw: np.ndarray, black: float, white: float, threshold: float) -> set[tuple[int, int]]:
@@ -57,6 +61,42 @@ def scan_file(path: Path, threshold: float) -> tuple[set[tuple[int, int]], tuple
         return find_outliers(data, black, float(raw.white_level), threshold), data.shape
 
 
+def render(path: Path) -> np.ndarray:
+    """Demosaic to 8-bit RGB in raw sensor orientation, so array (row, col) == raw_image_visible (row, col)."""
+    with rawpy.imread(str(path)) as raw:
+        rgb = raw.postprocess(user_flip=0)
+        if rgb.shape[:2] != raw.raw_image_visible.shape:
+            raise ValueError(f"rendered size {rgb.shape[:2]} != sensor size {raw.raw_image_visible.shape}")
+        return rgb
+
+
+def save_marks(rgb: np.ndarray, pixels: set[tuple[int, int]], base: Path, ext: str) -> None:
+    """Write <base>_marked.<ext> (full size, defects circled) and one zoomed crop per defect."""
+    h, w = rgb.shape[:2]
+    full = Image.fromarray(rgb)
+    draw = ImageDraw.Draw(full)
+    radius, width = max(15, max(h, w) // 150), max(2, max(h, w) // 1000)
+    for r, c in pixels:
+        # Black outer + white inner ring stays visible on any colour, including saturated noise.
+        draw.ellipse((c - radius - width, r - radius - width, c + radius + width, r + radius + width),
+                     outline="black", width=width)
+        draw.ellipse((c - radius, r - radius, c + radius, r + radius), outline="white", width=width)
+        top, left = max(0, r - ZOOM_RADIUS), max(0, c - ZOOM_RADIUS)
+        crop = Image.fromarray(rgb[top:r + ZOOM_RADIUS + 1, left:c + ZOOM_RADIUS + 1])
+        # Nearest-neighbour keeps the single defective pixel a crisp square instead of a blur.
+        zoom = crop.resize((crop.width * ZOOM_SCALE, crop.height * ZOOM_SCALE), Image.Resampling.NEAREST)
+        y, x = (r - top) * ZOOM_SCALE, (c - left) * ZOOM_SCALE
+        # Box drawn half a pixel outside the defect so its own colour stays untouched.
+        gap = ZOOM_SCALE // 2
+        zdraw = ImageDraw.Draw(zoom)
+        zdraw.rectangle((x - gap - 2, y - gap - 2, x + ZOOM_SCALE + gap + 1, y + ZOOM_SCALE + gap + 1),
+                        outline="black", width=2)
+        zdraw.rectangle((x - gap, y - gap, x + ZOOM_SCALE + gap - 1, y + ZOOM_SCALE + gap - 1),
+                        outline="white", width=2)
+        zoom.save(f"{base}_r{r}_c{c}.{ext}", quality=95)
+    full.save(f"{base}_marked.{ext}", quality=95)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("folder", type=Path)
@@ -65,6 +105,10 @@ def main() -> int:
     ap.add_argument("--min-ratio", type=float, default=0.5,
                     help="fraction of files a pixel must be flagged in (default 0.5)")
     ap.add_argument("--recursive", action="store_true", help="also scan subfolders")
+    ap.add_argument("--mark", type=Path, metavar="DIR",
+                    help="write a full-size image per affected file with defects circled, plus zoomed crops")
+    ap.add_argument("--mark-format", choices=("png", "jpg"), default="png",
+                    help="image format for --mark (default png, lossless)")
     args = ap.parse_args()
 
     if not args.folder.is_dir():
@@ -74,6 +118,7 @@ def main() -> int:
     files = sorted(p for p in args.folder.glob(pattern) if p.is_file() and not p.name.startswith("."))
 
     counts: Counter[tuple[int, int]] = Counter()
+    per_file: dict[Path, set[tuple[int, int]]] = {}
     shapes = set()
     scanned = not_raw = 0
     bar = tqdm(files, unit="file")
@@ -89,6 +134,7 @@ def main() -> int:
         scanned += 1
         shapes.add(shape)
         counts.update(hits)
+        per_file[f] = hits
         bar.set_postfix_str(f"{f.name}: {len(hits)} outliers")
 
     if not_raw:
@@ -107,9 +153,29 @@ def main() -> int:
     min_files = max(1, round(args.min_ratio * scanned))
     stuck = sorted(((pos, n) for pos, n in counts.items() if n >= min_files), key=lambda x: -x[1])
     print(f"{len(stuck)} suspected stuck pixels (flagged in >= {min_files}/{scanned} files)", file=sys.stderr)
-    print("row,col,files,files_pct")
+    stuck_set = {pos for pos, _ in stuck}
+    seen_in: dict[tuple[int, int], list[str]] = {pos: [] for pos in stuck_set}
+    for f, hits in per_file.items():
+        for pos in hits & stuck_set:
+            seen_in[pos].append(f.relative_to(args.folder).as_posix())
+
+    out = csv.writer(sys.stdout, lineterminator="\n")
+    out.writerow(["row", "col", "files", "files_pct", "file_names"])
     for (r, c), n in stuck:
-        print(f"{r},{c},{n},{100 * n / scanned:.1f}")
+        out.writerow([r, c, n, f"{100 * n / scanned:.1f}", ";".join(seen_in[(r, c)])])
+
+    if args.mark:
+        affected = {f: hits & stuck_set for f, hits in per_file.items() if hits & stuck_set}
+        for f, pixels in tqdm(affected.items(), unit="file", desc="marking"):
+            try:
+                rgb = render(f)
+            except (rawpy.LibRawError, OSError, ValueError) as e:
+                tqdm.write(f"{f.name}: not marked ({e})", file=sys.stderr)
+                continue
+            # One folder per raw, named with its extension and subfolders, so IMG_1.CR3 and IMG_1.NEF never collide.
+            rel = f.relative_to(args.folder)
+            (args.mark / rel).mkdir(parents=True, exist_ok=True)
+            save_marks(rgb, pixels, args.mark / rel / rel.stem, args.mark_format)
     return 0
 
 
